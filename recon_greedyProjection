@@ -1,4 +1,4 @@
-/** Filename: Poisson_reconstruction
+/** Filename: recon_greedyProjection
 
 ** Author: RSon
 
@@ -116,28 +116,4 @@ int _tmain(int argc, _TCHAR* argv[])
     /*这两个函数是三角化后每个三角形的最大角和最小角。两者至少要符合一个。典型值分别是10和120度（弧度）。*/
     gp3.setMaximumAngle(2 * M_PI / 3);
     gp3.setMinimumAngle(M_PI / 18);
-    gp3.setNormalConsistency(false);//如果法向量一致，设置为true
-    //设置搜索方法和输入点云
-    gp3.setInputCloud(cloud_with_normals);
-    gp3.setSearchMethod(tree2);
-
-    //执行重构
-    gp3.reconstruct(mesh);
-
-    //额外的信息
-    //vector<int> parts = gp3.getPartIDs();
-    //vector<int> states = gp3.getPointStates();
-    cout << "OK" << endl;
-    // 显示结果图
-    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D viewer"));
-    viewer->setBackgroundColor(0.5, 0.5, 1);
-    viewer->addPolygonMesh(mesh, "Blade");
-    viewer->addCoordinateSystem(0.1);
-    viewer->initCameraParameters();
-    while (!viewer->wasStopped()){
-        viewer->spinOnce(100);
-        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
-    }
-    system("pause");
-    return 0;
-}
+    gp3.setNormalConsistency(
