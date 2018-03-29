@@ -1,0 +1,143 @@
+/** Filename: Poisson_reconstruction
+
+** Author: RSon
+
+** Date: 2018-3-29
+
+**Description:
+
+**/
+
+#include "stdafx.h"
+#include <iostream>
+#include <string>
+
+#include <pcl\io\pcd_io.h>
+#include <pcl\io\ply_io.h>
+
+#include <pcl\point_types.h>
+
+#include <pcl\kdtree\kdtree_flann.h>
+#include <pcl\features\normal_3d.h>
+#include <pcl\features\normal_3d_omp.h>
+
+#include <pcl\filters\passthrough.h>
+
+#include <pcl\surface\poisson.h>
+#include <pcl\surface\gp3.h>
+
+#include <pcl\visualization\cloud_viewer.h>
+#include <pcl\visualization\pcl_visualizer.h>
+
+//多线程
+#include <boost\thread\thread.hpp>
+
+#include <vector>
+using namespace std;
+
+struct Node
+{
+    float x;
+    float y;
+    float z;
+    float i;
+    float j;
+    float k;
+};
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+    pcl::PointCloud<pcl::PointXYZ> ::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::io::loadPLYFile("bunny.ply", *cloud);
+
+    /*ifstream in0;
+    in0.open("FanBlade.asc", ios::in);
+    if (!in0.is_open())
+    {
+        cout << "error open!" << endl;
+        system("pause");
+        return -1;
+    }
+    vector<Node> points;
+    points.clear();
+    Node tmp;
+    while (in0 >> tmp.x >> tmp.y >> tmp.z >> tmp.i >> tmp.j >> tmp.k)
+        points.push_back(tmp);
+    pcl::PointXYZ cltmp;
+
+    for (size_t i = 0; i<points.size(); ++i)
+    {
+        cltmp.x = points[i].x;
+        cltmp.y = points[i].y;
+        cltmp.z = points[i].z;
+        cloud->points.push_back(cltmp);
+    }*/
+    cout << "数据读入完成" << endl;
+
+    ////滤波阶段
+    //pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    //pcl::PassThrough<pcl::PointXYZ> pass;
+    //pass.setInputCloud(cloud);
+    //pass.filter(*filtered);
+
+    cout << cloud->points.size() << endl;
+
+    // 计算法向量
+    pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointNormal>); //法向量点云对象指针
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> n;//法线估计对象
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);//存储估计的法线的指针
+    pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
+    tree->setInputCloud(cloud);
+    n.setInputCloud(cloud);
+    n.setSearchMethod(tree);
+    n.setKSearch(20);
+    n.compute(*normals); //计算法线，结果存储在normals中
+
+    //将点云和法线放到一起
+    pcl::concatenateFields(*cloud, *normals, *cloud_with_normals);
+
+    //创建搜索树
+    pcl::search::KdTree<pcl::PointNormal>::Ptr tree2(new pcl::search::KdTree<pcl::PointNormal>);
+    tree2->setInputCloud(cloud_with_normals);
+
+    //贪婪三角形重建曲面
+    pcl::GreedyProjectionTriangulation<pcl::PointNormal> gp3;
+    pcl::PolygonMesh mesh;
+    /*作用是控制搜索邻域大小。前者定义了可搜索的邻域个数，后者规定了被样本点搜索其邻近点的最远距离，
+    （是为了适应点云密度的变化），特征值一般是50-100和2.5-3（或者1.5每栅格）。*/
+    gp3.setSearchRadius(1.5);//连接点之间的最大距离（最大边长）用于确定k近邻的球半径【默认值 0】
+    gp3.setMu(2.5f);//近邻距离乘子，以得到每个点的最终搜索半径 0
+    gp3.setMaximumNearestNeighbors(100);
+    /*规定如果某点法线方向的偏离超过指定角度（注：大多数表面法线估计方法可以估计出连续变化的表面法线方向，
+    即使在尖锐的边缘条件下），该点就不连接到样本点上。该角度是通过计算法向
+    线段（忽略法线方向）之间的角度。*/
+    gp3.setMaximumSurfaceAngle(M_PI / 4);//最大平面角
+
+    /*这两个函数是三角化后每个三角形的最大角和最小角。两者至少要符合一个。典型值分别是10和120度（弧度）。*/
+    gp3.setMaximumAngle(2 * M_PI / 3);
+    gp3.setMinimumAngle(M_PI / 18);
+    gp3.setNormalConsistency(false);//如果法向量一致，设置为true
+    //设置搜索方法和输入点云
+    gp3.setInputCloud(cloud_with_normals);
+    gp3.setSearchMethod(tree2);
+
+    //执行重构
+    gp3.reconstruct(mesh);
+
+    //额外的信息
+    //vector<int> parts = gp3.getPartIDs();
+    //vector<int> states = gp3.getPointStates();
+    cout << "OK" << endl;
+    // 显示结果图
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D viewer"));
+    viewer->setBackgroundColor(0.5, 0.5, 1);
+    viewer->addPolygonMesh(mesh, "Blade");
+    viewer->addCoordinateSystem(0.1);
+    viewer->initCameraParameters();
+    while (!viewer->wasStopped()){
+        viewer->spinOnce(100);
+        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+    }
+    system("pause");
+    return 0;
+}
